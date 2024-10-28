@@ -1,0 +1,15 @@
+.vscode/
+
+collection-stats
+data/
+logs/
+playwright-dataset-16k.tar.gz
+runs/
+temp-out/
+v1_10-9.tar
+v2_10-10
+v2_10-10.tar
+v3.tar
+v3_10-10.tar
+yolo11n.pt
+yolov8s.pt

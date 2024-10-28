@@ -6,15 +6,17 @@ This script summarizes the similarity statistics of all collections by calculati
 (weighted by average_confidence) and the percentage distribution of similarity categories (high, medium, low, very low).
 It ranks the collections from best to least similar and outputs a summary text file with the results.
 Additionally, it exports the names of the top N collections based on the average similarity score into a separate text file.
+It also generates a histogram of average similarity scores for all collections.
 
 Usage:
-    python summarize_collections.py --output_dir /path/to/output_directory --summary_file summary.txt [--top_n 500 --top_collections_file top_500_collections.txt]
+    python summarize_collections.py --output_dir /path/to/output_directory --summary_file summary.txt [--top_n 500 --top_collections_file top_500_collections.txt --histogram_file histogram.png]
 
 Dependencies:
     - pandas
     - argparse
     - pathlib
     - tqdm
+    - matplotlib
 """
 
 import os
@@ -23,6 +25,7 @@ from pathlib import Path
 import argparse
 import logging
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 def setup_logging():
     """
@@ -50,7 +53,7 @@ def parse_arguments():
     Returns:
         argparse.Namespace: Parsed command-line arguments.
     """
-    parser = argparse.ArgumentParser(description="Summarize similarity statistics of all collections and export top N collections.")
+    parser = argparse.ArgumentParser(description="Summarize similarity statistics of all collections, export top N collections, and generate a histogram.")
     parser.add_argument(
         "--output_dir",
         type=str,
@@ -63,31 +66,37 @@ def parse_arguments():
         default="collections_summary.txt",
         help="Filename for the summary text file. *(Default: collections_summary.txt)*"
     )
-    # New Argument: Number of Top Collections to Export
     parser.add_argument(
         "--top_n",
         type=int,
         default=500,
         help="Number of top collections to export based on average similarity score. *(Default: 500)*"
     )
-    # New Argument: Filename for Top Collections
     parser.add_argument(
         "--top_collections_file",
         type=str,
         default="top_500_collections.txt",
         help="Filename for the top N collections text file. *(Default: top_500_collections.txt)*"
     )
+    parser.add_argument(
+        "--histogram_file",
+        type=str,
+        default="similarity_histogram.png",
+        help="Filename for the histogram image. *(Default: similarity_histogram.png)*"
+    )
     return parser.parse_args()
 
-def summarize_collections(output_dir, summary_file, top_n, top_collections_file):
+def summarize_collections(output_dir, summary_file, top_n, top_collections_file, histogram_file):
     """
-    Summarizes the similarity statistics of all collections and exports the top N collection names.
+    Summarizes the similarity statistics of all collections, exports the top N collection names,
+    and generates a histogram of average similarity scores.
 
     Args:
         output_dir (str): Path to the main output directory.
         summary_file (str): Path and filename for the summary text file.
         top_n (int): Number of top collections to export.
         top_collections_file (str): Filename for the top N collections text file.
+        histogram_file (str): Filename for the histogram image.
 
     Returns:
         None
@@ -242,7 +251,7 @@ def summarize_collections(output_dir, summary_file, top_n, top_collections_file)
     except Exception as e:
         logging.error(f"Failed to write summary to {summary_file}: {e}")
 
-    # New Functionality: Export Top N Collection Names to a Text File
+    # Export Top N Collection Names to a Text File
     try:
         # Determine the actual number of top collections (in case there are fewer than top_n)
         actual_top_n = min(top_n, len(summary_df))
@@ -256,10 +265,23 @@ def summarize_collections(output_dir, summary_file, top_n, top_collections_file)
     except Exception as e:
         logging.error(f"Failed to write top {top_n} collections to {top_collections_file}: {e}")
 
+    # Generate histogram of average similarity scores
+    try:
+        plt.figure(figsize=(12, 6))
+        plt.hist(summary_df['average_similarity'], bins=50, edgecolor='black')
+        plt.title('Histogram of Average Similarity Scores')
+        plt.xlabel('Average Similarity Score')
+        plt.ylabel('Number of Collections')
+        plt.savefig(histogram_file)
+        plt.close()
+        logging.info(f"Successfully generated histogram and saved to {histogram_file}")
+    except Exception as e:
+        logging.error(f"Failed to generate histogram: {e}")
+
 def main():
     setup_logging()
     args = parse_arguments()
-    summarize_collections(args.output_dir, args.summary_file, args.top_n, args.top_collections_file)
+    summarize_collections(args.output_dir, args.summary_file, args.top_n, args.top_collections_file, args.histogram_file)
 
 if __name__ == "__main__":
     main()

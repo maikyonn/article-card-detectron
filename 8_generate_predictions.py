@@ -74,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--images_dir", 
         type=str,  
-        default="16k-dataset-5/nytimes-2023",
+        default="data/v3-combined/nytimes-2023",
         help="Path to the directory containing images to process."
     )
     parser.add_argument(
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_weights", 
         type=str, 
-        default="16k-coco-t50-output/model_0004499.pth", 
+        default="data/v4-coco-finetune/model_final.pth", 
         help="Path to the trained Detectron2 model weights."
     )
     parser.add_argument(

@@ -235,7 +235,11 @@ def do_train(cfg, model, early_stopping, wandb_run):
         WandbWriter(wandb_run)
     ] if comm.is_main_process() else []
 
-    data_loader = build_detection_train_loader(cfg)
+    data_loader = build_detection_train_loader(
+        cfg,
+        mapper=DatasetMapper(cfg, is_train=True, augmentations=[T.ResizeShortestEdge(cfg.INPUT.MIN_SIZE_TRAIN, cfg.INPUT.MAX_SIZE_TRAIN), T.RandomFlip()]),
+        sampler=torch.utils.data.distributed.DistributedSampler(dataset) if comm.get_world_size() > 1 else None
+    )
     if comm.is_main_process():
         logger.info("Starting training from iteration {}".format(start_iter))
     
@@ -311,6 +315,10 @@ def setup(args):
     cfg.TRAIN_JSON = args.train_json
     cfg.VAL_JSON = args.val_json
     
+    # Set the model weights to the provided model file if it exists
+    if args.model_file and os.path.exists(args.model_file):
+        cfg.MODEL.WEIGHTS = args.model_file
+    
     cfg.merge_from_list(args.opts)
     cfg.freeze()
     default_setup(cfg, args)
@@ -352,10 +360,21 @@ def main(args):
 
     # Build the model
     model = build_model(cfg)
-    DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(cfg.MODEL.WEIGHTS, resume=False)
+    
+    # Load model weights for fine-tuning
+    if args.model_file and os.path.exists(args.model_file):
+        logger.info(f"Loading model weights from: {args.model_file}")
+        DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(args.model_file, resume=False)
+    else:
+        logger.info("No model file provided or file not found. Using default weights.")
+        DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(cfg.MODEL.WEIGHTS, resume=False)
 
     # Set up early stopping with hardcoded patience
     early_stopping = EarlyStopping(patience=5, delta=0.0)
+
+    # Add this block
+    if torch.cuda.is_available():
+        torch.cuda.set_device(comm.get_local_rank())
 
     # Training
     do_train(cfg, model, early_stopping, wandb_run)
@@ -370,30 +389,15 @@ def main(args):
     return
 
 
-def invoke_main() -> None:
+if __name__ == "__main__":
     parser = default_argument_parser()
     parser.add_argument("--data-dir", required=True, help="Path to the data directory")
     parser.add_argument("--output-dir", required=True, help="Path to the output directory")
     parser.add_argument("--wandb-run-name", default=None, help="Name for the wandb run")
     parser.add_argument("--train-json", required=True, help="Path to the train annotations JSON file")
     parser.add_argument("--val-json", required=True, help="Path to the validation annotations JSON file")
+    parser.add_argument("--model-file", default=None, help="Path to the model file for fine-tuning")
     args = parser.parse_args()
     print("Command Line Args:", args)
     
-    # Use a random port number
-    import random
-    port = random.randint(10000, 20000)
-    dist_url = f"tcp://127.0.0.1:{port}"
-    
-    launch(
-        main,
-        args.num_gpus,
-        num_machines=args.num_machines,
-        machine_rank=args.machine_rank,
-        dist_url=dist_url,
-        args=(args,),
-    )
-
-
-if __name__ == "__main__":
-    invoke_main()
+    main(args)

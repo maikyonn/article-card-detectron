@@ -38,7 +38,6 @@ def visualize_annotations_and_predictions(
     images_dir,
     output_gt_dir,
     output_pred_dir,
-    num_samples=5,
     model_weights=None,
     score_threshold=0.5,
     filter_file=None
@@ -51,10 +50,9 @@ def visualize_annotations_and_predictions(
         images_dir (str): Path to the directory containing images.
         output_gt_dir (str): Directory to save images with ground truth bounding boxes.
         output_pred_dir (str): Directory to save images with predicted bounding boxes.
-        num_samples (int): Number of samples to visualize.
         model_weights (str): Path to the trained Detectron2 model weights. If None, predictions are skipped.
         score_threshold (float): Minimum score for the predicted bounding boxes to be visualized.
-        filter_file (str): Path to a text file containing strings to filter image filenames.
+        filter_file (str): Path to a text file containing folder names to filter image filenames.
     """
     # Ensure output directories exist
     Path(output_gt_dir).mkdir(parents=True, exist_ok=True)
@@ -74,20 +72,22 @@ def visualize_annotations_and_predictions(
         img_id_to_ann[ann['image_id']].append(ann)
     
     # Load filter strings if filter_file is provided
-    filter_strings = []
+    folder_names = []
     if filter_file:
         with open(filter_file, 'r') as f:
-            filter_strings = [line.strip() for line in f if line.strip()]
+            folder_names = [line.strip() for line in f if line.strip()]
     
-    # Filter images based on filter_strings
-    if filter_strings:
-        filtered_images = [img for img in images if any(fs in img['file_name'] for fs in filter_strings)]
-    else:
-        filtered_images = images
+    # Filter images based on folder_names
+    selected_images = []
+    for folder in folder_names:
+        folder_images = [img for img in images if folder in img['file_name']]
+        if folder_images:
+            selected_images.append(random.choice(folder_images))
+    
+    # If no folder names provided, select one random image
+    if not selected_images:
+        selected_images = [random.choice(images)]
 
-    # Select random samples from filtered images
-    sample_images = random.sample(filtered_images, min(num_samples, len(filtered_images)))
-    
     # Register the datasets
     register_datasets()
     dataset_name = "custom_dataset_val"  # Ensure consistency
@@ -115,7 +115,7 @@ def visualize_annotations_and_predictions(
         predictor = None
         print("No model weights provided. Skipping predictions.")
     
-    for img in sample_images:
+    for img in selected_images:
         img_path = Path(images_dir) / img['file_name']
         image = cv2.imread(str(img_path))
         if image is None:
@@ -163,10 +163,25 @@ def visualize_annotations_and_predictions(
             # Optionally filter predictions by score_threshold
             instances = instances[instances.scores >= score_threshold]
             
-            out = v.draw_instance_predictions(instances)
-            pred_output_path = Path(output_pred_dir) / f"pred_{img['file_name']}"
-            cv2.imwrite(str(pred_output_path), out.get_image()[:, :, ::-1])
-            print(f"Saved prediction image to {pred_output_path}")
+            try:
+                out = v.draw_instance_predictions(instances)
+                pred_output_path = Path(output_pred_dir) / f"pred_{img['file_name']}"
+                cv2.imwrite(str(pred_output_path), out.get_image()[:, :, ::-1])
+                print(f"Saved prediction image to {pred_output_path}")
+            except ValueError as e:
+                print(f"Error processing or saving prediction image: {e}")
+                print(f"Image file: {img['file_name']}")
+                print(f"Image dimensions: {image.shape}")
+                # You might want to implement a resizing strategy here
+                # For example:
+                # max_dim = 2**16 - 1
+                # h, w = image.shape[:2]
+                # if h > max_dim or w > max_dim:
+                #     scale = min(max_dim / h, max_dim / w)
+                #     new_h, new_w = int(h * scale), int(w * scale)
+                #     resized_image = cv2.resize(image, (new_w, new_h))
+                #     # Rerun prediction and visualization on resized image
+                # ...
 
 
 if __name__ == "__main__":
@@ -176,32 +191,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--annotations_json", 
         type=str, 
-        default="data/v1-datasets-archiveorg/16k-coco-t1000/annotations/train_annotations.json",
+        default="data/v2-datasets-playwright/live-playwright-coco/annotations/val_annotations.json",
         help="Path to the COCO annotations JSON file."
     )
     parser.add_argument(
         "--images_dir", 
         type=str,  
-        default="data/v1-datasets-archiveorg/16k-coco-t1000/images",
+        default="data/v2-datasets-playwright/live-playwright-coco/images",
         help="Path to the directory containing images."
     )
     parser.add_argument(
         "--output_gt_dir", 
         type=str, 
-        default="sample-worse/trash", 
+        default="v2-eval-final/trash", 
         help="Directory to save images with ground truth bounding boxes."
     )
     parser.add_argument(
         "--output_pred_dir", 
         type=str, 
-        default="sample-worse/eval", 
+        default="v2-eval-final/eval", 
         help="Directory to save images with predicted bounding boxes."
-    )
-    parser.add_argument(
-        "--num_samples", 
-        type=int, 
-        default=1, 
-        help="Number of samples to visualize."
     )
     parser.add_argument(
         "--model_weights", 
@@ -218,8 +227,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--filter_file", 
         type=str, 
-        default=None, 
-        help="Path to a text file containing strings to filter image filenames."
+        required=True, 
+        help="Path to a text file containing folder names to filter image filenames."
     )
 
     args = parser.parse_args()
@@ -229,7 +238,6 @@ if __name__ == "__main__":
         images_dir=args.images_dir,
         output_gt_dir=args.output_gt_dir,
         output_pred_dir=args.output_pred_dir,
-        num_samples=args.num_samples,
         model_weights=args.model_weights,
         score_threshold=args.score_threshold,
         filter_file=args.filter_file

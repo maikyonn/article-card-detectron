@@ -4,7 +4,7 @@ DATASETS:
   TEST: ("article_card_val",) # Validation dataset registered in the script
 
 DATALOADER:
-  NUM_WORKERS: 1 # Number of data loading workers per process
+  NUM_WORKERS: 8 # Number of data loading workers per process
 
 MODEL:
   # Specify the number of classes (1 for "article_card")
@@ -12,13 +12,7 @@ MODEL:
     NUM_CLASSES: 1
     BATCH_SIZE_PER_IMAGE: 128 # Number of regions of interest to sample per image
 
-MODEL:
-  ROI_HEADS:
-    NMS_THRESH_TEST: 0.2  # More aggressive suppression for ROI heads
-  RETINANET:
-    NMS_THRESH_TEST: 0.2  # More aggressive suppression for RetinaNet
-  RPN:
-    NMS_THRESH: 0.4  
+
 INPUT:
   MIN_SIZE_TRAIN: (800, 1000) # Minimum size of the image during training (can be a tuple for random selection)
   MAX_SIZE_TRAIN: 1333 # Maximum size of the image during training
@@ -27,8 +21,8 @@ INPUT:
 
 SOLVER:
   IMS_PER_BATCH: 16 # Total batch size across all GPUs (args.batch_size * args.num_gpus)
-  MAX_ITER: 10000 # Maximum number of training iterations
-  STEPS: [5000] # Steps at which to decrease the learning rate (empty means no decay)
+  MAX_ITER: 20000 # Maximum number of training iterations
+  STEPS: [15000] # Steps at which to decrease the learning rate (empty means no decay)
   CHECKPOINT_PERIOD: 500 # Save a checkpoint every 1000 iterations (max(1, MAX_ITER // 10))
 
 OUTPUT_DIR: "./output" # Directory to save checkpoints and logs

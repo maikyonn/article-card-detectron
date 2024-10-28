@@ -125,7 +125,7 @@ def parse_arguments():
     parser.add_argument(
         '--top_collections_file',
         type=str,
-        default="top_500_collections.txt",
+        default=None,
         help='Path to the text file containing names of top collections to process (e.g., top_500_collections.txt).'
     )
 

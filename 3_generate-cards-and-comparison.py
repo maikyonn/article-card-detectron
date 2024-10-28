@@ -1,5 +1,4 @@
 import os
-
 import random
 import cv2
 import pandas as pd
@@ -9,9 +8,7 @@ import easyocr
 from PIL import Image
 from tqdm import tqdm
 import logging
-import requests
 import json
-import urllib.parse
 from difflib import SequenceMatcher
 import time
 
@@ -57,33 +54,24 @@ def perform_ocr(reader, image_path, languages=['en']):
         ocr_confidences = []
     return ocr_texts, ocr_confidences
 
-def fetch_json_data(json_url, retries=3, backoff_factor=0.3):
+def read_json_data(json_path):
     """
-    Fetch JSON data from the specified URL with a retry mechanism.
+    Read JSON data from a local file.
 
     Parameters:
-    - json_url (str): URL to fetch the JSON data from.
-    - retries (int): Number of retry attempts. Default is 3.
-    - backoff_factor (float): Factor for exponential backoff between retries. Default is 0.3.
+    - json_path (Path): Path to the JSON file.
 
     Returns:
     - data (list): List of dictionaries containing JSON data.
     """
-    for attempt in range(retries):
-        try:
-            response = requests.get(json_url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            logging.info(f"Successfully fetched JSON data from {json_url}")
-            return data
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Attempt {attempt + 1}: Failed to fetch JSON data from {json_url}: {e}")
-            if attempt < retries - 1:
-                time.sleep(backoff_factor * (2 ** attempt))  # Exponential backoff
-            else:
-                logging.error(f"All {retries} attempts failed for {json_url}. Proceeding without JSON validation.")
-                return []
-    return []
+    try:
+        with open(json_path, 'r') as file:
+            data = json.load(file)
+        logging.info(f"Successfully read JSON data from {json_path}")
+        return data
+    except Exception as e:
+        logging.error(f"Failed to read JSON data from {json_path}: {e}")
+        return []
 
 def calculate_similarity(text1, text2):
     """
@@ -125,7 +113,7 @@ def process_collection(
     output_dir,
     ocr_output_suffix="_ocr_results.csv",
     image_extension=".fullpage.jpg",
-    csv_extension=".csv",
+    csv_extension=".fullpage.csv",
     html_extension=".html",
     categories_present=True,
     languages=['en'],
@@ -186,13 +174,24 @@ def process_collection(
             return
 
         for csv_file in csv_files:
-            base_name = csv_file.stem  # Without the .csv extension
+            # Remove '.fullpage' from the base name, but keep '-new' if present
+            base_name = csv_file.stem.replace('.fullpage', '')
 
-            # Corresponding image file
+            # Corresponding image and JSON files
             image_file = collection_path / f"{base_name}{image_extension}"
+            json_file = collection_path / f"{base_name.replace('-new', '')}.hyperlinks.json"
+
             if not image_file.exists():
                 logging.warning(f"Image file '{image_file}' does not exist. Skipping CSV '{csv_file.name}'.")
                 continue
+
+            if not json_file.exists():
+                logging.warning(f"JSON file '{json_file}' does not exist. Proceeding without JSON validation.")
+                json_texts = []
+            else:
+                # Read JSON data from local file
+                json_data = read_json_data(json_file)
+                json_texts = json_data if isinstance(json_data, list) else []
 
             # Read the image
             image = cv2.imread(str(image_file))
@@ -217,25 +216,6 @@ def process_collection(
             if categories_present and 'category' not in df.columns:
                 logging.warning(f"'category' column not found in '{csv_file}'. Setting category as 'object'.")
                 df['category'] = 'object'
-
-            # Extract the root for JSON URL construction
-            # Assuming the root is the part before the first '_box'
-            if '_box' in base_name:
-                root = base_name.split('_box')[0]
-            else:
-                root = base_name  # Fallback if '_box' not in name
-
-            # URL encode the root to handle special characters
-            encoded_root = urllib.parse.quote(root)
-
-            # Construct the JSON URL dynamically based on the collection name
-            # Assuming the JSON URL follows the pattern:
-            # https://ia601609.us.archive.org/13/items/{collection_name}/{encoded_root}.hyperlinks.json
-            json_url = f"https://ia601609.us.archive.org/13/items/{collection_name}/{encoded_root}.hyperlinks.json"
-
-            # Fetch JSON data
-            json_data = fetch_json_data(json_url)
-            json_texts = json_data if isinstance(json_data, list) else []
 
             # Iterate through each bounding box
             for idx, row in df.iterrows():
@@ -324,7 +304,7 @@ def create_cropped_images_and_perform_ocr(
     output_dir,
     ocr_output_suffix="_ocr_results.csv",
     image_extension=".fullpage.jpg",
-    csv_extension=".csv",
+    csv_extension=".fullpage.csv",
     html_extension=".html",
     categories_present=True,
     languages=['en'],

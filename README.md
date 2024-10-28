@@ -1,4 +1,7 @@
 # Data Processing and Visualization Repository
+## Overview
+
+This repository presents a comprehensive workflow for training a Detectron2 model tailored to identify and classify article cards on news homepages. The project initiates with the acquisition of web data through proxy-configured download scripts, ensuring efficient and scalable data collection. Following data acquisition, scripts are employed to extract and generate precise bounding boxes from HTML files, facilitating accurate localization of article regions within the webpages. The dataset is then methodically split and pruned using specialized scripts to enhance quality and relevance, preparing it for effective model training. Conversion tools transform the curated data into the COCO format, a standard compatible with Detectron2, thereby streamlining the training process. Advanced visualization scripts are included to compare ground truth annotations with model predictions, providing valuable insights into the model's performance and areas for improvement. Additionally, utility scripts support tasks such as data validation, file management, and bounding box manipulation, ensuring the integrity and organization of the dataset. By integrating these diverse scripts into a unified pipeline, this repository offers an end-to-end solution for developing a robust object detection model, ultimately aiming to enhance the automated analysis and organization of content on news websites.
 
 ## Table of Contents
 - [Overview](#overview)

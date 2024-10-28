@@ -102,57 +102,62 @@ def visualize_annotations_and_predictions(
         print("No model weights provided. Skipping predictions.")
     
     for img in sample_images:
-        img_path = Path(images_dir) / img['file_name']
-        image = cv2.imread(str(img_path))
-        if image is None:
-            print(f"Failed to load image {img_path}")
+        try:
+            img_path = Path(images_dir) / img['file_name']
+            image = cv2.imread(str(img_path))
+            if image is None:
+                print(f"Failed to load image {img_path}")
+                continue
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+            # === Visualize Ground Truth with OpenCV ===
+            for ann in img_id_to_ann[img['id']]:
+                x, y, w, h = ann['bbox']
+                top_left = (int(x), int(y))
+                bottom_right = (int(x + w), int(y + h))
+                cv2.rectangle(image_rgb, top_left, bottom_right, color=(0, 255, 0), thickness=2)  # Green box
+
+                # Draw label
+                label = categories.get(ann['category_id'], 'object')
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.5
+                thickness = 1
+                text_size, _ = cv2.getTextSize(label, font, font_scale, thickness)
+                text_origin = (int(x), int(y) - 5 if int(y) - 5 > 5 else int(y) + 5)
+
+                # Draw background rectangle for text
+                cv2.rectangle(image_rgb, 
+                              (text_origin[0], text_origin[1] - text_size[1] - 2),
+                              (text_origin[0] + text_size[0] + 2, text_origin[1] + 2),
+                              color=(255, 255, 0),  # Yellow background
+                              thickness=-1)  # Filled rectangle
+
+                # Put text
+                cv2.putText(image_rgb, label, text_origin, font, font_scale, 
+                            color=(0, 0, 0), thickness=thickness, lineType=cv2.LINE_AA)
+
+            gt_output_path = Path(output_gt_dir) / f"gt_{img['file_name']}"
+            cv2.imwrite(str(gt_output_path), cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
+            print(f"Saved ground truth image to {gt_output_path}")
+            
+            # === Visualize Predictions ===
+            if predictor:
+                outputs = predictor(image)
+                # Use the correct metadata
+                v = Visualizer(image_rgb[:, :, ::-1], MetadataCatalog.get(dataset_name), scale=1.2, instance_mode=ColorMode.IMAGE)
+                instances = outputs["instances"].to("cpu")
+                
+                # Optionally filter predictions by score_threshold
+                instances = instances[instances.scores >= score_threshold]
+                
+                out = v.draw_instance_predictions(instances)
+                pred_output_path = Path(output_pred_dir) / f"pred_{img['file_name']}"
+                cv2.imwrite(str(pred_output_path), out.get_image()[:, :, ::-1])
+                print(f"Saved prediction image to {pred_output_path}")
+        
+        except Exception as e:
+            print(f"Error processing image {img['file_name']}: {str(e)}")
             continue
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # === Visualize Ground Truth with OpenCV ===
-        for ann in img_id_to_ann[img['id']]:
-            x, y, w, h = ann['bbox']
-            top_left = (int(x), int(y))
-            bottom_right = (int(x + w), int(y + h))
-            cv2.rectangle(image_rgb, top_left, bottom_right, color=(0, 255, 0), thickness=2)  # Green box
-
-            # Draw label
-            label = categories.get(ann['category_id'], 'object')
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.5
-            thickness = 1
-            text_size, _ = cv2.getTextSize(label, font, font_scale, thickness)
-            text_origin = (int(x), int(y) - 5 if int(y) - 5 > 5 else int(y) + 5)
-
-            # Draw background rectangle for text
-            cv2.rectangle(image_rgb, 
-                          (text_origin[0], text_origin[1] - text_size[1] - 2),
-                          (text_origin[0] + text_size[0] + 2, text_origin[1] + 2),
-                          color=(255, 255, 0),  # Yellow background
-                          thickness=-1)  # Filled rectangle
-
-            # Put text
-            cv2.putText(image_rgb, label, text_origin, font, font_scale, 
-                        color=(0, 0, 0), thickness=thickness, lineType=cv2.LINE_AA)
-
-        gt_output_path = Path(output_gt_dir) / f"gt_{img['file_name']}"
-        cv2.imwrite(str(gt_output_path), cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
-        print(f"Saved ground truth image to {gt_output_path}")
-        
-        # === Visualize Predictions ===
-        if predictor:
-            outputs = predictor(image)
-            # Use the correct metadata
-            v = Visualizer(image_rgb[:, :, ::-1], MetadataCatalog.get(dataset_name), scale=1.2, instance_mode=ColorMode.IMAGE)
-            instances = outputs["instances"].to("cpu")
-            
-            # Optionally filter predictions by score_threshold
-            instances = instances[instances.scores >= score_threshold]
-            
-            out = v.draw_instance_predictions(instances)
-            pred_output_path = Path(output_pred_dir) / f"pred_{img['file_name']}"
-            cv2.imwrite(str(pred_output_path), out.get_image()[:, :, ::-1])
-            print(f"Saved prediction image to {pred_output_path}")
 
 
 if __name__ == "__main__":

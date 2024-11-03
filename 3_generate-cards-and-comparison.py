@@ -1,3 +1,63 @@
+"""
+OCR Processing and Validation Tool
+
+This script processes collections of images, performs OCR on specified regions, and validates
+the extracted text against provided JSON data. It's designed to handle large datasets of
+document images with corresponding bounding box information.
+
+Key Features:
+- Crops images based on bounding box coordinates from CSV files
+- Performs OCR on cropped regions using EasyOCR
+- Validates OCR results against expected text from JSON files
+- Saves cropped images and OCR results in organized directory structure
+- Supports multiple languages and GPU acceleration
+- Includes progress tracking and comprehensive logging
+
+Usage:
+    python script.py --main_dir INPUT_DIR --output_dir OUTPUT_DIR [options]
+
+Required Arguments:
+    --main_dir      Path to directory containing collection subdirectories
+    --output_dir    Path where results will be saved
+
+Optional Arguments:
+    --ocr_output_suffix   Suffix for OCR results CSV (default: "_ocr_results.csv")
+    --image_extension     Extension for input images (default: ".fullpage.jpg")
+    --csv_extension      Extension for CSV files (default: ".csv")
+    --html_extension     Extension for HTML files (default: ".html")
+    --categories_present Flag if CSV contains category column
+    --languages         OCR languages, space-separated (default: "en")
+    --use_gpu          Flag to enable GPU acceleration
+
+Input Directory Structure:
+    main_dir/
+    ├── collection1/
+    │   ├── image1.fullpage.jpg
+    │   ├── image1.fullpage.csv
+    │   └── image1.hyperlinks.json
+    └── collection2/
+        └── ...
+
+Output Directory Structure:
+    output_dir/
+    ├── collection1/
+    │   ├── box-images/
+    │   │   └── cropped_images.jpg
+    │   └── collection1_ocr_results.csv
+    └── collection2/
+        └── ...
+
+CSV Format:
+    Required columns: x, y, width, height
+    Optional columns: category
+
+Notes:
+    - JSON files should contain text entries to validate against OCR results
+    - The similarity score (0.0 to 1.0) indicates how well the JSON text is contained
+      within the OCR text, with 1.0 meaning perfect containment
+    - Processing can be resumed as it skips collections with existing results
+"""
+
 import os
 import random
 import cv2
@@ -11,6 +71,7 @@ import logging
 import json
 from difflib import SequenceMatcher
 import time
+import shutil
 
 def setup_logging():
     """
@@ -73,30 +134,38 @@ def read_json_data(json_path):
         logging.error(f"Failed to read JSON data from {json_path}: {e}")
         return []
 
-def calculate_similarity(text1, text2):
+def calculate_similarity(ocr_text, json_text):
     """
-    Calculate the similarity ratio between two texts using SequenceMatcher.
-
+    Calculate if json_text is contained within ocr_text, with fuzzy matching.
+    Returns 1.0 if json_text is fully contained, 0.0 if not found at all.
+    
     Parameters:
-    - text1 (str): First text string.
-    - text2 (str): Second text string.
-
-    Returns:
-    - similarity (float): Similarity ratio between 0 and 1.
+    - ocr_text (str): The longer text from OCR
+    - json_text (str): The shorter text we're looking for
     """
-    return SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
+    # Normalize both texts
+    ocr_text = ocr_text.lower().strip()
+    json_text = json_text.lower().strip()
+    
+    if not json_text or not ocr_text:  # Handle empty strings
+        return 0.0
+        
+    # Split into words to handle word-level matching
+    json_words = json_text.split()
+    ocr_words = ocr_text.split()
+    
+    # Count how many words from json_text are found in ocr_text
+    words_found = sum(1 for word in json_words 
+                     if any(SequenceMatcher(None, word, ocr_word).ratio() > 0.8 
+                           for ocr_word in ocr_words))
+    
+    # Calculate percentage of json words found
+    return words_found / len(json_words) if json_words else 0.0
 
 def find_best_match(ocr_text, json_texts):
     """
     Find the best matching text in json_texts for the given ocr_text.
-
-    Parameters:
-    - ocr_text (str): OCR extracted text.
-    - json_texts (list): List of dictionaries containing JSON data.
-
-    Returns:
-    - best_score (float): Highest similarity score found.
-    - best_match_text (str): The JSON text that best matches the OCR text.
+    A perfect score (1.0) means the json text is fully contained within the OCR text.
     """
     best_score = 0.0
     best_match_text = ""
@@ -356,6 +425,15 @@ def create_cropped_images_and_perform_ocr(
             use_gpu=use_gpu
         )
 
+def cleanup_box_images(output_dir):
+    """Clean up all box-images directories after processing"""
+    for collection_dir in Path(output_dir).iterdir():
+        if collection_dir.is_dir():
+            box_images_dir = collection_dir / "box-images"
+            if box_images_dir.exists():
+                shutil.rmtree(box_images_dir)
+                logging.info(f"Cleaned up box images for collection: {collection_dir.name}")
+
 def main():
     setup_logging()
     parser = argparse.ArgumentParser(description="Crop images based on bounding boxes from CSV files, perform OCR, validate against JSON data, and save the results.")
@@ -425,6 +503,9 @@ def main():
         languages=args.languages,
         use_gpu=args.use_gpu
     )
+    
+    # Add cleanup at the end
+    cleanup_box_images(args.output_dir)
 
 if __name__ == "__main__":
     main()

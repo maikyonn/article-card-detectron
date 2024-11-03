@@ -1,3 +1,52 @@
+"""
+Snapshot Comparison and Dataset Creation Tool
+-------------------------------------------
+
+This script compares pairs of website snapshots (old vs new) using YOLO object detection
+to determine which snapshot has better quality, then creates a combined dataset with the
+best versions.
+
+Features:
+- Multi-GPU support for parallel processing
+- Automatic handling of Windows/Unix path differences
+- Supports processing specific subfolders
+- Preserves directory structure in output
+- Copies associated CSV files from the 'new' directory
+- Configurable file suffixes for images and data files
+
+Usage:
+    python 2.5_create-combined-dataset.py --old <old_dir> --new <new_dir> --output <output_dir> [options]
+
+Required Arguments:
+    --old       Path to directory containing the old snapshots
+    --new       Path to directory containing the new snapshots
+    --output    Path to directory where the combined dataset will be saved
+
+Optional Arguments:
+    --subfolder       Specific subfolder to process (processes all if not specified)
+    --model          Path to YOLO model file (default: yolov8s.pt)
+    --img-suffix     Suffix for image files (default: '.fullpage.jpg')
+    --data-suffix    Suffix for data files (default: '.csv')
+    --new-suffix     Suffix added to new images (default: '-new')
+    --old-suffix     Suffix added to old images in output (default: '-old-best')
+    --new-best-suffix Suffix added to new images in output (default: '-new-best')
+
+Example:
+    python 2.5_create-combined-dataset.py \
+        --old "v5-proxy" \
+        --new "v5-proxy" \
+        --output "v5-proxy-combined" \
+        --model "yolov8x.pt" \
+        --img-suffix ".fullpage.jpg" \
+        --data-suffix ".json"
+
+Notes:
+- Automatically handles filename sanitization for Windows systems
+- Requires CUDA-compatible GPU(s)
+- Uses up to 4 GPUs if available
+- Data files are always copied from the 'new' directory
+"""
+
 import os
 import sys
 import shutil
@@ -8,6 +57,7 @@ from PIL import Image
 
 from ultralytics import YOLO
 import pandas as pd
+import torch
 
 # Global variable to hold the YOLO model in each process
 yolo_model = None
@@ -31,7 +81,14 @@ def run_yolo_detection(image_path, logger):
     """
     try:
         logger.info(f"Processing image {image_path}")
-        results = yolo_model.predict(source=image_path, imgsz=16384, max_det=1000, verbose=False)
+        # Force CPU inference for MPS compatibility
+        results = yolo_model.predict(
+            source=image_path, 
+            imgsz=16384, 
+            max_det=1000, 
+            verbose=False,
+            device='cpu'  # Force CPU for prediction to avoid MPS limitations
+        )
         num_detections = len(results[0].boxes)
         logger.info(f"Detected {num_detections} objects in {image_path}")
         return num_detections
@@ -63,15 +120,14 @@ def get_image_size(image_path):
 def process_image_pair(args):
     """
     Processes a single image pair (old and new images).
-    Determines the better snapshot and saves the corresponding image and CSV.
     """
-    (file, old_root, new_root, output_dir, replace_colon, old_dir, new_dir, logger) = args
+    (file, old_root, new_root, output_dir, replace_colon, old_dir, new_dir, logger, suffixes) = args
     try:
-        base_name = file[:-13]  # Remove '.fullpage.jpg'
+        base_name = file[:-len(suffixes['img'])]
         sanitized_base_name = sanitize_filename(base_name, replace_colon)
 
         old_image_path = os.path.join(old_root, file)
-        new_image_name = f"{sanitized_base_name}-new.fullpage.jpg"
+        new_image_name = f"{sanitized_base_name}{suffixes['new']}{suffixes['img']}"
         new_image_path = os.path.join(new_root, new_image_name)
 
         if not os.path.exists(new_image_path):
@@ -87,13 +143,13 @@ def process_image_pair(args):
         # Determine better snapshot
         if old_count > new_count * 1.2:
             best_image_path = old_image_path
-            best_suffix = '-old-best'
+            best_suffix = suffixes['old_best']
         else:
             best_image_path = new_image_path
-            best_suffix = '-new-best'
+            best_suffix = suffixes['new_best']
 
         # Always use the CSV from 'new'
-        csv_source_path = new_image_path.replace('.fullpage.jpg', '.csv')
+        csv_source_path = new_image_path.replace(suffixes['img'], suffixes['data'])
 
         # Define output paths
         if best_image_path.startswith(old_dir):
@@ -105,16 +161,16 @@ def process_image_pair(args):
         best_image_name = os.path.basename(sanitized_relative_best_path)
 
         # Correct naming for output files
-        if best_image_name.endswith('-new.fullpage.jpg'):
-            best_image_name = best_image_name.replace('-new.fullpage.jpg', f'{best_suffix}.fullpage.jpg')
-        elif best_image_name.endswith('.fullpage.jpg'):
-            best_image_name = best_image_name.replace('.fullpage.jpg', f'{best_suffix}.fullpage.jpg')
+        if best_image_name.endswith(suffixes['new'] + suffixes['img']):
+            best_image_name = best_image_name.replace(suffixes['new'] + suffixes['img'], f'{best_suffix}{suffixes['img']}')
+        elif best_image_name.endswith(suffixes['img']):
+            best_image_name = best_image_name.replace(suffixes['img'], f'{best_suffix}{suffixes['img']}')
         else:
-            best_image_name += f'{best_suffix}.fullpage.jpg'  # Fallback
+            best_image_name += f'{best_suffix}{suffixes['img']}'  # Fallback
 
         # Construct the full output image path
         output_image_path = os.path.join(output_dir, os.path.dirname(sanitized_relative_best_path), best_image_name)
-        output_csv_path = output_image_path.replace('.jpg', '.csv')
+        output_csv_path = output_image_path.replace(suffixes['img'], suffixes['data'])
 
         # Ensure the output subdirectory exists
         output_image_dir = os.path.dirname(output_image_path)
@@ -137,11 +193,12 @@ def process_image_pair(args):
     except Exception as e:
         logger.error(f"Error processing file {file}: {e}")
 
-def gather_image_pairs(old_dir, new_dir, replace_colon, specific_subfolder=None):
+def gather_image_pairs(old_dir, new_dir, replace_colon, img_suffix, new_suffix, specific_subfolder=None):
     """
     Gathers all image pairs to be processed.
     """
     image_pairs = []
+    new_img_suffix = f"{new_suffix}{img_suffix}"
 
     if specific_subfolder:
         old_subfolder = os.path.join(old_dir, specific_subfolder)
@@ -150,39 +207,47 @@ def gather_image_pairs(old_dir, new_dir, replace_colon, specific_subfolder=None)
             print(f"Specified subfolder '{specific_subfolder}' not found in both old and new directories.")
             return image_pairs
         for file in os.listdir(old_subfolder):
-            if file.endswith('.fullpage.jpg') and not file.endswith('-new.fullpage.jpg'):
+            if file.endswith(img_suffix) and not file.endswith(new_img_suffix):
                 image_pairs.append((file, old_subfolder, new_subfolder, replace_colon, old_dir, new_dir))
     else:
         for root, dirs, files in os.walk(old_dir):
             relative_path = os.path.relpath(root, old_dir)
             new_root = os.path.join(new_dir, relative_path)
             for file in files:
-                if file.endswith('.fullpage.jpg') and not file.endswith('-new.fullpage.jpg'):
+                if file.endswith(img_suffix) and not file.endswith(new_img_suffix):
                     image_pairs.append((file, root, new_root, replace_colon, old_dir, new_dir))
 
     return image_pairs
 
-def worker(gpu_id, tasks, model_path, output_dir, replace_colon, old_dir, new_dir):
+def get_device(gpu_id=None):
+    """
+    Determines the appropriate device to use (CUDA, MPS, or CPU).
+    """
+    if torch.backends.mps.is_available():
+        return 'mps'
+    elif torch.cuda.is_available():
+        return f'cuda:{gpu_id}' if gpu_id is not None else 'cuda'
+    return 'cpu'
+
+def worker(gpu_id, tasks, model_path, output_dir, replace_colon, old_dir, new_dir, suffixes):
     """
     Worker function for each GPU process to handle assigned image pairs.
     """
-    # Configure logging for this process
     logger = configure_logging(gpu_id)
-
-    # Initialize YOLO model on the assigned GPU
+    
     try:
         global yolo_model
         yolo_model = YOLO(model_path)
-        yolo_model.to(f'cuda:{gpu_id}')
-        logger.info(f"Initialized YOLO model on GPU {gpu_id}.")
+        device = get_device(gpu_id)
+        yolo_model.to(device)
+        logger.info(f"Initialized YOLO model on device: {device}")
     except Exception as e:
-        logger.error(f"Failed to initialize YOLO model on GPU {gpu_id}: {e}")
+        logger.error(f"Failed to initialize YOLO model: {e}")
         sys.exit(1)
 
     for task in tasks:
         file, old_root, new_root, replace_colon_task, old_dir_task, new_dir_task = task
-        # Pass the same replace_colon, old_dir, new_dir as per main
-        process_image_pair((file, old_root, new_root, output_dir, replace_colon, old_dir, new_dir, logger))
+        process_image_pair((file, old_root, new_root, output_dir, replace_colon, old_dir, new_dir, logger, suffixes))
 
 def main():
     # Set the multiprocessing start method to 'spawn'
@@ -194,6 +259,11 @@ def main():
     parser.add_argument("--output", required=True, help="Path to the output directory")
     parser.add_argument("--subfolder", help="Specific subfolder to process")
     parser.add_argument("--model", default='yolov8s.pt', help="Path to the YOLO model file")
+    parser.add_argument("--img-suffix", default='.fullpage.jpg', help="Suffix for image files")
+    parser.add_argument("--data-suffix", default='.csv', help="Suffix for data files")
+    parser.add_argument("--new-suffix", default='-new', help="Suffix added to new images")
+    parser.add_argument("--old-suffix", default='-old-best', help="Suffix added to old images in output")
+    parser.add_argument("--new-best-suffix", default='-new-best', help="Suffix added to new images in output")
     args = parser.parse_args()
 
     # Determine if sanitization is needed based on OS
@@ -207,21 +277,20 @@ def main():
     else:
         main_logger.info("Operating System detected: Unix-like. Colons in filenames will be retained.")
 
-    # Check for available GPUs
-    import torch
-    if not torch.cuda.is_available():
-        main_logger.error("No CUDA-compatible GPU detected. Exiting.")
+    # Check for available compute devices
+    if torch.backends.mps.is_available():
+        main_logger.info("Apple Silicon GPU detected. Using MPS backend.")
+        num_gpus_to_use = 1  # MPS only supports single GPU
+    elif torch.cuda.is_available():
+        num_gpus_available = torch.cuda.device_count()
+        num_gpus_to_use = min(4, num_gpus_available)
+        main_logger.info(f"Detected {num_gpus_available} CUDA GPUs. Utilizing {num_gpus_to_use} GPUs for processing.")
+    else:
+        main_logger.error("No GPU detected. This script requires GPU acceleration. Exiting.")
         sys.exit(1)
 
-    num_gpus_available = torch.cuda.device_count()
-    num_gpus_to_use = min(4, num_gpus_available)
-    if num_gpus_available < 4:
-        main_logger.warning(f"Only {num_gpus_available} GPUs detected. The script will utilize {num_gpus_to_use} GPUs.")
-    else:
-        main_logger.info(f"Detected {num_gpus_available} GPUs. Utilizing {num_gpus_to_use} GPUs for processing.")
-
     # Gather all image pairs
-    image_pairs = gather_image_pairs(args.old, args.new, replace_colon_in_filenames, args.subfolder)
+    image_pairs = gather_image_pairs(args.old, args.new, replace_colon_in_filenames, args.img_suffix, args.new_suffix, args.subfolder)
     if not image_pairs:
         main_logger.error("No image pairs found to process. Exiting.")
         sys.exit(1)
@@ -244,7 +313,13 @@ def main():
         if not tasks:
             main_logger.info(f"No tasks assigned to GPU {gpu_id}. Skipping.")
             continue
-        p = multiprocessing.Process(target=worker, args=(gpu_id, tasks, args.model, args.output, replace_colon_in_filenames, args.old, args.new))
+        p = multiprocessing.Process(target=worker, args=(gpu_id, tasks, args.model, args.output, replace_colon_in_filenames, args.old, args.new, {
+            'img': args.img_suffix,
+            'data': args.data_suffix,
+            'new': args.new_suffix,
+            'old_best': args.old_suffix,
+            'new_best': args.new_best_suffix
+        }))
         p.start()
         processes.append(p)
         main_logger.info(f"Started process on GPU {gpu_id} with {len(tasks)} image pairs.")

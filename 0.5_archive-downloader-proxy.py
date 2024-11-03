@@ -1,3 +1,8 @@
+"""
+This is a helper file used by 0_download-launcher.py to download items from Internet Archive collections.
+Please run 0_download-launcher.py instead of running this file directly.
+"""
+
 import os
 import argparse
 import internetarchive as ia
@@ -6,10 +11,6 @@ import logging
 import time
 from requests.exceptions import Timeout, ConnectionError, RequestException
 
-# ===========================
-# Logging Setup
-# ===========================
-
 logging.basicConfig(
     filename='download_log.log',
     filemode='a',
@@ -17,22 +18,12 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ===========================
-# Utility Functions
-# ===========================
-
 def create_directory_if_needed(identifier, base_dir):
-    """
-    Create a directory for the given identifier if it doesn't exist.
-    """
     item_dir = os.path.join(base_dir, identifier)
     os.makedirs(item_dir, exist_ok=True)
     return item_dir
 
 def retry_operation(func, max_retries, retry_delay, *args, **kwargs):
-    """
-    Retry a function with exponential backoff.
-    """
     retries = 0
     while retries < max_retries:
         try:
@@ -47,22 +38,14 @@ def retry_operation(func, max_retries, retry_delay, *args, **kwargs):
     logging.error(f"Operation failed after {max_retries} retries.")
     return None
 
-# ===========================
-# Core Functionality
-# ===========================
-
 def download_collection_chunk(start, end, proxy=None, max_retries=5, retry_delay=5, base_dir='downloads-16k-proxy', 
                             collection_name='news-homepages', file_type_limits=None, download_timeout=30):
-    """
-    Download a chunk of items from the specified collection using the given proxy.
-    """
     if file_type_limits is None:
         file_type_limits = {'.html': 15, 'fullpage.jpg': 15}
 
     try:
         collection_subset = []
 
-        # Configure proxy if provided
         if proxy:
             proxies = {
                 'http': proxy,
@@ -75,20 +58,17 @@ def download_collection_chunk(start, end, proxy=None, max_retries=5, retry_delay
             logging.info("No proxy configured.")
             print("No proxy configured.")
 
-        # Perform the search and fetch data from API
         search_query = f'collection:{collection_name}'
         search = ia.search_items(search_query)
 
-        # Fetch search results
         logging.info("Fetching search results from Internet Archive...")
         with tqdm(desc="Fetching collection items", unit="item") as pbar:
             for result in search:
                 collection_subset.append(result)
                 pbar.update(1)
                 if end is not None and len(collection_subset) >= end:
-                    break  # Stop if we've reached the desired end
+                    break
 
-        # Adjust the subset based on start and end indices
         if end is not None:
             collection_subset = collection_subset[start:end]
         else:
@@ -101,21 +81,18 @@ def download_collection_chunk(start, end, proxy=None, max_retries=5, retry_delay
             print("No items found in the specified range.")
             return
 
-        # Initialize progress bar for downloading items
         with tqdm(total=total_items, desc="Processing items from collection") as pbar:
             for result in collection_subset:
                 identifier = result.get('identifier', 'unknown_identifier')
                 logging.info(f"Processing item: {identifier}")
                 print(f"\nProcessing item: {identifier}")
 
-                # Fetch item details with retry
                 item = retry_operation(ia.get_item, max_retries, retry_delay, identifier)
                 if item is None:
                     logging.error(f"Failed to fetch item details for {identifier}. Skipping.")
                     pbar.update(1)
                     continue
 
-                # List files and filter based on configured types and limits
                 try:
                     files = list(item.get_files())
                 except Exception as e:
@@ -124,11 +101,9 @@ def download_collection_chunk(start, end, proxy=None, max_retries=5, retry_delay
                     pbar.update(1)
                     continue
 
-                # Counters for limiting files
                 file_counts = {ft: 0 for ft in file_type_limits}
                 filtered_files = []
 
-                # Process files and gather up to the specified limit for each type
                 for file in files:
                     for file_type, limit in file_type_limits.items():
                         if file.name.endswith(file_type) and file_counts[file_type] < limit:
@@ -183,9 +158,6 @@ def download_collection_chunk(start, end, proxy=None, max_retries=5, retry_delay
                             # Update the file progress bar
                             file_pbar.update(1)
 
-                    # ===========================
-                    # Verification Step
-                    # ===========================
                     logging.info(f"Verifying downloaded files for {identifier}.")
                     print(f"Verifying downloaded files for {identifier}.")
 
@@ -220,9 +192,6 @@ def download_collection_chunk(start, end, proxy=None, max_retries=5, retry_delay
         logging.exception(f"An unexpected error occurred: {e}")
         print(f"An unexpected error occurred: {e}")
 
-# ===========================
-# Main Execution
-# ===========================
 
 def main():
     # Command-line argument parsing

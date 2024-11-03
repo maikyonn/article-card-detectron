@@ -1,6 +1,27 @@
+"""
+A script to launch multiple instances of the archive downloader with different proxies.
+
+This script coordinates downloading items from Internet Archive collections by distributing
+the work across multiple proxies. Each proxy handles a chunk of items to download in parallel.
+
+Example usage:
+    python 0_download-launcher.py \
+        --proxies_file socks5.txt \
+        --script 0.5_archive-downloader-proxy.py \
+        --chunk_size 40 \
+        --delay 1 \
+        --base_dir v5-proxy \
+        --collection news-homepages \
+        --max_retries 5 \
+        --retry_delay 5 \
+        --download_timeout 30 \
+        --file_type_limits .html=2 fullpage.jpg=2 hyperlinks.json=2
+"""
+
 import subprocess
 import time
 import argparse
+import os
 
 def read_proxies(file_path):
     """
@@ -59,6 +80,9 @@ def main():
     parser.add_argument('--file_type_limits', nargs='*', help='File type limits (e.g., .html=15 fullpage.jpg=15)')
     
     args = parser.parse_args()
+
+    # Create base directory if it doesn't exist
+    os.makedirs(args.base_dir, exist_ok=True)
 
     # Read proxies from file
     proxies = read_proxies(args.proxies_file)

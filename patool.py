@@ -1,3 +1,32 @@
+"""
+Parallel Tar Compression and Decompression Tool
+---------------------------------------------
+
+A multi-threaded tool for compressing folders into tar archives and decompressing tar archives.
+
+Features:
+- Multi-threaded compression and decompression for improved performance
+- Preserves directory structure
+- Progress reporting
+- Memory-efficient streaming of large files
+
+Usage:
+    python patool.py compress <input_folder> <output_tar>
+    python patool.py decompress <input_tar> <output_directory>
+
+Examples:
+    # Compress a folder into a tar archive
+    python patool.py compress ./my_folder ./output.tar
+
+    # Decompress a tar archive into a folder
+    python patool.py decompress ./archive.tar ./output_folder
+
+Notes:
+- Uses 64 threads by default for both compression and decompression
+- Handles large files and directories efficiently
+- Shows progress during operation
+"""
+
 import os
 import tarfile
 import sys

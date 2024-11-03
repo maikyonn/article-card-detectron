@@ -1,3 +1,35 @@
+"""
+A script to validate and clean downloaded files from Internet Archive collections.
+
+This script checks folders containing downloaded files from Internet Archive collections,
+verifying that each folder has the expected number of HTML and JPG files. It can also
+validate the integrity of HTML and JPG files, and optionally remove invalid folders.
+
+Basic check for correct number of files:
+    python 0.75_verify-download.py --downloads-dir 16k-dataset --required-files 15
+
+Check files and remove invalid folders:
+    python 0.75_verify-download.py \
+        --downloads-dir 16k-dataset \
+        --required-files 15 \
+        --remove-invalid
+
+Full validation with HTML and image checks:
+    python 0.75_verify-download.py \
+        --downloads-dir 16k-dataset \
+        --required-files 15 \
+        --remove-invalid \
+        --validate-html \
+        --validate-images
+
+Arguments:
+    --downloads-dir: Path to directory containing downloaded folders (default: 16k-dataset)
+    --required-files: Number of HTML and JPG files each folder should have (default: 15)
+    --remove-invalid: Remove folders that fail validation checks
+    --validate-html: Enable HTML file validation
+    --validate-images: Enable JPG file validation
+"""
+
 import os
 import shutil
 import argparse
